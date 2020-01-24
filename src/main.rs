@@ -54,6 +54,25 @@ impl Crawler {
         Ok(body)
     }
 
+    fn run(&mut self) {
+        match self
+            .queue
+            .add(self.convert_link_to_abs(self.base_url.as_str()))
+        {
+            Err(e) => println!("{}", e),
+            _ => (),
+        }
+        while self.queue.size() > 0 {
+            match self.fetch() {
+                Ok(content) => match self.get_links(content) {
+                    Ok(()) => println!("added links: {:#?}", self.queue),
+                    Err(e) => println!("{}", e),
+                },
+                Err(e) => println!("{}", e),
+            }
+        }
+    }
+
     fn convert_link_to_abs(&self, link: &str) -> String {
         let re = Regex::new(r"^http://.*").unwrap();
         if !re.is_match(link) {
@@ -103,13 +122,7 @@ fn main() {
 
     if let Some(t) = matches.value_of("target") {
         let mut crawler: Crawler = Crawler::new(&t.to_string());
-        match crawler.fetch() {
-            Ok(content) => match crawler.get_links(content) {
-                Ok(()) => println!("added links: {:#?}", crawler.queue),
-                Err(e) => println!("{}", e),
-            },
-            Err(e) => println!("{}", e),
-        }
+        crawler.run();
     } else {
         println!("unable to parse target");
     }
