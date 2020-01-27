@@ -13,6 +13,7 @@ use select::document::Document;
 use select::predicate::Name;
 use std::collections::HashSet;
 use std::result::Result;
+use std::thread;
 use url::Url;
 
 struct Crawler {
@@ -22,10 +23,11 @@ struct Crawler {
     queue: Queue<String>,
     base_url: String,
     fetch_any_domain: bool,
+    workers: u8,
 }
 
 impl Crawler {
-    fn new(target: &String, any_domain: bool) -> Crawler {
+    fn new(target: &String, any_domain: bool, workers: u8) -> Crawler {
         let client = reqwest::Client::new();
         let visited: HashSet<String> = HashSet::new();
         let queue: Queue<String> = queue![];
@@ -49,6 +51,7 @@ impl Crawler {
             queue: queue,
             base_url: burl,
             fetch_any_domain: any_domain,
+            workers: workers,
         }
     }
 
@@ -94,7 +97,7 @@ impl Crawler {
             match self.queue.remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
                     Ok(content) => match self.get_links(content) {
-                        Ok(()) => println!("added links: {:#?}", self.queue),
+                        Ok(()) => println!("added new links"),
                         Err(e) => println!("{}", e),
                     },
                     Err(e) => println!("{}", e),
@@ -149,7 +152,14 @@ fn main() {
                 .short("t")
                 .takes_value(true),
         )
-        .arg(Arg::with_name("any").help("fetch any domain").short("a"));
+        .arg(Arg::with_name("any").help("fetch any domain").short("a"))
+        .arg(
+            Arg::with_name("workers")
+                .help("number of workers to spin up")
+                .short("w")
+                .takes_value(true)
+                .default_value("1"),
+        );
     let matches = opts.get_matches();
 
     let mut any_domain = false;
@@ -157,8 +167,16 @@ fn main() {
         any_domain = true;
     }
 
+    let mut workers = 1;
+    if let Some(w) = matches.value_of("workers") {
+        match w.parse::<u8>() {
+            Ok(v) => workers = v,
+            Err(_) => println!("unable to parse workers, defaulting to {}", workers),
+        }
+    }
+
     if let Some(t) = matches.value_of("target") {
-        let mut crawler: Crawler = Crawler::new(&t.to_string(), any_domain);
+        let mut crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
         crawler.run();
     } else {
         println!("unable to parse target");
