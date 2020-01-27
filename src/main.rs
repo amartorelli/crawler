@@ -20,9 +20,8 @@ struct Crawler {
     target: String,
     visited: HashSet<String>,
     queue: Queue<String>,
-    base_url: Url,
+    base_url: String,
     fetch_any_domain: bool,
-    domain_regex: Regex,
 }
 
 impl Crawler {
@@ -30,16 +29,19 @@ impl Crawler {
         let client = reqwest::Client::new();
         let visited: HashSet<String> = HashSet::new();
         let queue: Queue<String> = queue![];
-        let burl: Url;
+        let burl: String;
 
-        match Url::parse(target.as_str()) {
-            Ok(base_url) => burl = base_url,
+        match url::Url::parse(target.as_str()) {
+            Ok(url) => {
+                if let Some(base_url) = url.host_str() {
+                    burl = String::from(base_url);
+                } else {
+                    panic!("Unable to extract base url from target link {}", target);
+                }
+            }
             Err(e) => panic!("{}", e),
         }
 
-        let mut rule = String::from("^");
-        rule.push_str(burl.as_str());
-        rule.push_str(".*");
         Crawler {
             client: client,
             target: target.to_string(),
@@ -47,7 +49,6 @@ impl Crawler {
             queue: queue,
             base_url: burl,
             fetch_any_domain: any_domain,
-            domain_regex: Regex::new(rule.as_str()).unwrap(),
         }
     }
 
@@ -58,16 +59,27 @@ impl Crawler {
     }
 
     fn should_fetch(&self, link: &str) -> bool {
-        if self.fetch_any_domain || self.domain_regex.is_match(link) {
-            println!("Comparing {}/{:#?} should fetch", link, self.domain_regex);
+        if self.fetch_any_domain {
             return true;
         }
-        println!(
-            "Comparing {}/{:#?} should not fetch",
-            link, self.domain_regex
-        );
-        println!("Domain {} should not fetch", link);
-        false
+        self.is_same_domain(link)
+    }
+
+    fn is_same_domain(&self, link: &str) -> bool {
+        match Url::parse(link) {
+            Ok(url) => {
+                if let Some(host) = url.host_str() {
+                    println!("checking {} base url {} with {}", link, host, self.base_url);
+                    return host == self.base_url;
+                } else {
+                    false
+                }
+            }
+            Err(e) => {
+                println!("{}", e);
+                return false;
+            }
+        }
     }
 
     fn run(&mut self) {
@@ -94,16 +106,12 @@ impl Crawler {
 
     fn convert_link_to_abs(&self, link: &str) -> String {
         lazy_static! {
-            static ref RE: Regex = Regex::new(r"^http://.*").unwrap();
+            static ref RE: Regex = Regex::new(r"^http[s]*://.*").unwrap();
         }
         if !RE.is_match(link) {
-            match self.base_url.join(link) {
-                Ok(full_url) => return full_url.into_string(),
-                Err(e) => {
-                    println!("unable to convert link to abs: {}", e);
-                    return String::new();
-                }
-            };
+            let mut s = self.base_url.to_owned();
+            s.push_str(link);
+            return s;
         } else {
             String::from(link)
         }
