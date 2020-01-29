@@ -13,14 +13,15 @@ use select::document::Document;
 use select::predicate::Name;
 use std::collections::HashSet;
 use std::result::Result;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use url::Url;
 
 struct Crawler {
     client: reqwest::Client,
     target: String,
-    visited: HashSet<String>,
-    queue: Queue<String>,
+    visited: Arc<Mutex<HashSet<String>>>,
+    queue: Arc<Mutex<Queue<String>>>,
     base_url: String,
     fetch_any_domain: bool,
     workers: u8,
@@ -29,8 +30,8 @@ struct Crawler {
 impl Crawler {
     fn new(target: &String, any_domain: bool, workers: u8) -> Crawler {
         let client = reqwest::Client::new();
-        let visited: HashSet<String> = HashSet::new();
-        let queue: Queue<String> = queue![];
+        let visited = Arc::new(Mutex::new(HashSet::new()));
+        let queue = Arc::new(Mutex::new(Queue::new()));
         let burl: String;
 
         match url::Url::parse(target.as_str()) {
@@ -88,13 +89,15 @@ impl Crawler {
     fn run(&mut self) {
         match self
             .queue
+            .lock()
+            .unwrap()
             .add(self.convert_link_to_abs(self.target.as_str()))
         {
             Err(e) => println!("{}", e),
             _ => (),
         }
-        while self.queue.size() > 0 {
-            match self.queue.remove() {
+        while self.queue.lock().unwrap().size() > 0 {
+            match self.queue.lock().unwrap().remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
                     Ok(content) => match self.get_links(content) {
                         Ok(()) => println!("added new links"),
@@ -127,13 +130,13 @@ impl Crawler {
             .for_each(|l| {
                 let link = &String::from(l);
                 let full_link = self.convert_link_to_abs(link);
-                if !self.visited.contains(&full_link) {
+                if !self.visited.lock().unwrap().contains(&full_link) {
                     if self.should_fetch(&full_link) {
-                        match self.queue.add(full_link.to_string()) {
+                        match self.queue.lock().unwrap().add(full_link.to_string()) {
                             Err(e) => println!("{}", e),
                             _ => (),
                         }
-                        self.visited.insert(full_link.to_string());
+                        self.visited.lock().unwrap().insert(full_link.to_string());
                     }
                 }
             });
@@ -177,7 +180,11 @@ fn main() {
 
     if let Some(t) = matches.value_of("target") {
         let mut crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
-        crawler.run();
+        // crawler.run();
+        let t = thread::spawn(move || {
+            crawler.run();
+        });
+        t.join().expect("the thread has panicked");
     } else {
         println!("unable to parse target");
     }
