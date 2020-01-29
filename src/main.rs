@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use url::Url;
 
+#[derive(Clone)]
 struct Crawler {
     client: reqwest::Client,
     target: String,
@@ -86,7 +87,7 @@ impl Crawler {
         }
     }
 
-    fn run(&mut self) {
+    fn run(&self) {
         match self
             .queue
             .lock()
@@ -123,7 +124,7 @@ impl Crawler {
         }
     }
 
-    fn get_links(&mut self, content: String) -> Result<(), reqwest::Error> {
+    fn get_links(&self, content: String) -> Result<(), reqwest::Error> {
         Document::from(content.as_str())
             .find(Name("a"))
             .filter_map(|n| n.attr("href"))
@@ -179,12 +180,20 @@ fn main() {
     }
 
     if let Some(t) = matches.value_of("target") {
-        let mut crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
-        // crawler.run();
-        let t = thread::spawn(move || {
-            crawler.run();
-        });
-        t.join().expect("the thread has panicked");
+        let crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
+
+        let mut children = vec![];
+        for _i in 0..workers {
+            let crawler = crawler.clone();
+
+            children.push(thread::spawn(move || {
+                crawler.run();
+            }));
+        }
+
+        for child in children {
+            let _ = child.join();
+        }
     } else {
         println!("unable to parse target");
     }
