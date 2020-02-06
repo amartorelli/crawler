@@ -88,15 +88,18 @@ impl Crawler {
     }
 
     fn run(&self) {
-        match self
-            .queue
-            .lock()
-            .unwrap()
-            .add(self.convert_link_to_abs(self.target.as_str()))
         {
-            Err(e) => println!("{}", e),
-            _ => (),
+            match self
+                .queue
+                .lock()
+                .unwrap()
+                .add(self.convert_link_to_abs(self.target.as_str()))
+            {
+                Err(e) => println!("{}", e),
+                _ => (),
+            }
         }
+
         while self.queue.lock().unwrap().size() > 0 {
             match self.queue.lock().unwrap().remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
@@ -182,17 +185,18 @@ fn main() {
     if let Some(t) = matches.value_of("target") {
         let crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
 
-        let mut children = vec![];
+        let mut threads = vec![];
+        let c = Arc::new(Mutex::new(crawler));
         for _i in 0..workers {
-            let crawler = crawler.clone();
-
-            children.push(thread::spawn(move || {
-                crawler.run();
+            let cc = c.clone();
+            threads.push(thread::spawn(move || {
+                let guard = cc.lock().unwrap();
+                guard.run();
             }));
         }
 
-        for child in children {
-            let _ = child.join();
+        for t in threads {
+            let _ = t.join();
         }
     } else {
         println!("unable to parse target");
