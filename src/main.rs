@@ -18,6 +18,7 @@ use std::thread;
 use url::Url;
 
 struct Crawler {
+    name: String,
     client: reqwest::Client,
     target: String,
     visited: Arc<Mutex<HashSet<String>>>,
@@ -27,7 +28,12 @@ struct Crawler {
 }
 
 impl Crawler {
-    fn new(visited: Arc<Mutex<HashSet<String>>>, target: &String, any_domain: bool) -> Crawler {
+    fn new(
+        name: String,
+        visited: Arc<Mutex<HashSet<String>>>,
+        target: &String,
+        any_domain: bool,
+    ) -> Crawler {
         let client = reqwest::Client::new();
         let queue = Queue::new();
         let burl: String;
@@ -37,13 +43,17 @@ impl Crawler {
                 if let Some(base_url) = url.host_str() {
                     burl = String::from(base_url);
                 } else {
-                    panic!("Unable to extract base url from target link {}", target);
+                    panic!(
+                        "{}: Unable to extract base url from target link {}",
+                        name, target
+                    );
                 }
             }
-            Err(e) => panic!("{}", e),
+            Err(e) => panic!("{}: {}", name, e),
         }
 
         Crawler {
+            name: name,
             client: client,
             target: target.to_string(),
             visited: visited,
@@ -70,14 +80,17 @@ impl Crawler {
         match Url::parse(link) {
             Ok(url) => {
                 if let Some(host) = url.host_str() {
-                    println!("checking {} base url {} with {}", link, host, self.base_url);
+                    println!(
+                        "{}: checking {} base url {} with {}",
+                        self.name, link, host, self.base_url
+                    );
                     return host == self.base_url;
                 } else {
                     false
                 }
             }
             Err(e) => {
-                println!("{}", e);
+                println!("{}: {}", self.name, e);
                 return false;
             }
         }
@@ -89,7 +102,7 @@ impl Crawler {
                 .queue
                 .add(self.convert_link_to_abs(self.target.as_str()))
             {
-                Err(e) => println!("{}", e),
+                Err(e) => println!("{}: {}", self.name, e),
                 _ => (),
             }
         }
@@ -97,19 +110,19 @@ impl Crawler {
         loop {
             let l = self.queue.size();
             if l == 0 {
-                println!("empty queue, exiting...");
+                println!("{}: empty queue, exiting...", self.name);
                 break;
             }
 
             match self.queue.remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
                     Ok(content) => match self.get_links(content) {
-                        Ok(()) => println!("added new links"),
-                        Err(e) => println!("{}", e),
+                        Ok(()) => println!("{}: added new links", self.name),
+                        Err(e) => println!("{}: {}", self.name, e),
                     },
-                    Err(e) => println!("{}", e),
+                    Err(e) => println!("{}: {}", self.name, e),
                 },
-                Err(e) => println!("{}", e),
+                Err(e) => println!("{}: {}", self.name, e),
             }
         }
     }
@@ -137,7 +150,7 @@ impl Crawler {
                 if !self.visited.lock().unwrap().contains(&full_link) {
                     if self.should_fetch(&full_link) {
                         match self.queue.add(full_link.to_string()) {
-                            Err(e) => println!("{}", e),
+                            Err(e) => println!("{}: {}", self.name, e),
                             _ => (),
                         }
                         self.visited.lock().unwrap().insert(full_link.to_string());
@@ -188,7 +201,8 @@ fn main() {
         for i in 0..n_workers {
             println!("spawning worker {}", i);
             let v = Arc::clone(&visited);
-            let crawler: Crawler = Crawler::new(v, &t.to_string(), any_domain);
+            let name = "Crawler".to_owned() + i.to_string().as_str();
+            let crawler: Crawler = Crawler::new(name, v, &t.to_string(), any_domain);
             threads.push(thread::spawn(move || {
                 crawler.run();
             }));
