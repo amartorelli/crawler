@@ -17,22 +17,20 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use url::Url;
 
-#[derive(Clone)]
 struct Crawler {
     client: reqwest::Client,
     target: String,
     visited: Arc<Mutex<HashSet<String>>>,
-    queue: Arc<Mutex<Queue<String>>>,
+    queue: Queue<String>,
     base_url: String,
     fetch_any_domain: bool,
-    workers: u8,
 }
 
 impl Crawler {
-    fn new(target: &String, any_domain: bool, workers: u8) -> Crawler {
+    fn new(target: &String, any_domain: bool) -> Crawler {
         let client = reqwest::Client::new();
         let visited = Arc::new(Mutex::new(HashSet::new()));
-        let queue = Arc::new(Mutex::new(Queue::new()));
+        let queue = Queue::new();
         let burl: String;
 
         match url::Url::parse(target.as_str()) {
@@ -53,7 +51,6 @@ impl Crawler {
             queue: queue,
             base_url: burl,
             fetch_any_domain: any_domain,
-            workers: workers,
         }
     }
 
@@ -87,12 +84,10 @@ impl Crawler {
         }
     }
 
-    fn run(&self) {
+    fn run(mut self) {
         {
             match self
                 .queue
-                .lock()
-                .unwrap()
                 .add(self.convert_link_to_abs(self.target.as_str()))
             {
                 Err(e) => println!("{}", e),
@@ -101,13 +96,13 @@ impl Crawler {
         }
 
         loop {
-            let l = self.queue.lock().unwrap().size();
+            let l = self.queue.size();
             if l == 0 {
                 println!("empty queue, exiting...");
                 break;
             }
 
-            match self.queue.lock().unwrap().remove() {
+            match self.queue.remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
                     Ok(content) => match self.get_links(content) {
                         Ok(()) => println!("added new links"),
@@ -133,7 +128,7 @@ impl Crawler {
         }
     }
 
-    fn get_links(&self, content: String) -> Result<(), reqwest::Error> {
+    fn get_links(&mut self, content: String) -> Result<(), reqwest::Error> {
         Document::from(content.as_str())
             .find(Name("a"))
             .filter_map(|n| n.attr("href"))
@@ -142,7 +137,7 @@ impl Crawler {
                 let full_link = self.convert_link_to_abs(link);
                 if !self.visited.lock().unwrap().contains(&full_link) {
                     if self.should_fetch(&full_link) {
-                        match self.queue.lock().unwrap().add(full_link.to_string()) {
+                        match self.queue.add(full_link.to_string()) {
                             Err(e) => println!("{}", e),
                             _ => (),
                         }
@@ -180,25 +175,22 @@ fn main() {
         any_domain = true;
     }
 
-    let mut workers = 1;
+    let mut n_workers = 1;
     if let Some(w) = matches.value_of("workers") {
         match w.parse::<u8>() {
-            Ok(v) => workers = v,
-            Err(_) => println!("unable to parse workers, defaulting to {}", workers),
+            Ok(v) => n_workers = v,
+            Err(_) => println!("unable to parse workers, defaulting to {}", n_workers),
         }
     }
 
     if let Some(t) = matches.value_of("target") {
-        let crawler: Crawler = Crawler::new(&t.to_string(), any_domain, workers);
-
+        let visited: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
         let mut threads = vec![];
-        let c = Arc::new(Mutex::new(crawler));
-        for i in 0..workers {
+        for i in 0..n_workers {
             println!("spawning worker {}", i);
-            let cc = c.clone();
+            let crawler: Crawler = Crawler::new(&t.to_string(), any_domain);
             threads.push(thread::spawn(move || {
-                let guard = cc.lock().unwrap();
-                guard.run();
+                crawler.run();
             }));
         }
 
