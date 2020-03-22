@@ -27,9 +27,8 @@ struct Crawler {
 }
 
 impl Crawler {
-    fn new(target: &String, any_domain: bool) -> Crawler {
+    fn new(visited: Arc<Mutex<HashSet<String>>>, target: &String, any_domain: bool) -> Crawler {
         let client = reqwest::Client::new();
-        let visited = Arc::new(Mutex::new(HashSet::new()));
         let queue = Queue::new();
         let burl: String;
 
@@ -188,7 +187,8 @@ fn main() {
         let mut threads = vec![];
         for i in 0..n_workers {
             println!("spawning worker {}", i);
-            let crawler: Crawler = Crawler::new(&t.to_string(), any_domain);
+            let v = Arc::clone(&visited);
+            let crawler: Crawler = Crawler::new(v, &t.to_string(), any_domain);
             threads.push(thread::spawn(move || {
                 crawler.run();
             }));
