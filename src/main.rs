@@ -100,7 +100,13 @@ impl Crawler {
             }
         }
 
-        while self.queue.lock().unwrap().size() > 0 {
+        loop {
+            let l = self.queue.lock().unwrap().size();
+            if l == 0 {
+                println!("empty queue, exiting...");
+                break;
+            }
+
             match self.queue.lock().unwrap().remove() {
                 Ok(link) => match self.fetch(link.as_str()) {
                     Ok(content) => match self.get_links(content) {
@@ -187,7 +193,8 @@ fn main() {
 
         let mut threads = vec![];
         let c = Arc::new(Mutex::new(crawler));
-        for _i in 0..workers {
+        for i in 0..workers {
+            println!("spawning worker {}", i);
             let cc = c.clone();
             threads.push(thread::spawn(move || {
                 let guard = cc.lock().unwrap();
@@ -196,7 +203,7 @@ fn main() {
         }
 
         for t in threads {
-            let _ = t.join();
+            let _ = t.join().unwrap();
         }
     } else {
         println!("unable to parse target");
